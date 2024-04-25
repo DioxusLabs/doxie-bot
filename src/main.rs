@@ -2,16 +2,21 @@
 
 use std::{collections::HashSet, path::PathBuf};
 
+use dioxus::prelude::dioxus_elements::{pre, table};
 use doxie_types::*;
 use git2::{Commit, Oid, Repository, Revwalk};
 use tokio::process::Command;
 
 mod workflow;
 
+const OUTPUT_DIR: &str = "data";
+
 #[tokio::main]
 async fn main() {
+    let root = PathBuf::from("/Users/jonkelley/Development/dioxus");
+
     // For now, just write to the stats cache as the default
-    save_stats_as_artifact().await;
+    save_stats_as_artifact(root);
 }
 
 async fn bot_loop() {}
@@ -72,6 +77,50 @@ async fn collect_size(name: String) -> CompileSizeStats {
     }
 }
 
+#[tokio::test]
+async fn changed_prs__() {
+    let octocrab = octocrab::instance();
+
+    changed_on_prs(&octocrab).await;
+}
+
+async fn changed_on_prs(api: &octocrab::Octocrab) {
+    use octocrab::params::State as PrState;
+
+    // Quickly check if this PR has any artifacts with cached data.
+    // This should just let us skip any work we need to do. Eventually all the PRs will have this work
+    // done for them automatically in the workflow.
+    let prs = api
+        .pulls("dioxuslabs", "dioxus")
+        .list()
+        .state(PrState::Open)
+        .per_page(100)
+        .send()
+        .await
+        .unwrap();
+
+    for pr in prs {
+        println!(
+            "PR [{login}] {title} - {id}\n{body}\n",
+            id = pr.id,
+            body = pr.body.as_deref().unwrap_or_default(),
+            title = pr.title.as_deref().unwrap_or_default(),
+            login = &pr.user.as_ref().unwrap().login
+        );
+    }
+}
+
+/// Use the github API to figure out what packages have been changed by a given PR
+///
+/// This checks out the branch of the given PR, diffs it against HEAD and then saves the changed files
+/// We only want the *changed files since HEAD* so we have an idea of what is changing for a given PR.
+///
+/// Eventually we want to save this for cargo semver checks and then run the checks.
+///
+/// Alternatively, we could run the diffing here on the PR itself and save it as an artifact which this
+/// bot reads.
+async fn changed_on_pr(api: &octocrab::Octocrab, pr_id: usize) {}
+
 /// Whenever a PR is merged, we kick off the workflow to build the stats for the new main branch and then
 /// save that as a single unified blob to the repo.
 ///
@@ -80,7 +129,32 @@ async fn collect_size(name: String) -> CompileSizeStats {
 ///
 /// We should also try to implement some sort of caching/versioning CDN-like mechanism so we don't
 /// run into issues. GH gives us 12.5k req/hr which could add up in DDOS scenario
-async fn save_stats_as_artifact() {}
+fn save_stats_as_artifact(path: PathBuf) {
+    // For now, collect all the PRs just for 0.4 and 0.5
+    let repo = Repository::open(path).unwrap();
+    changed_crates_on_repo(&repo);
+}
+
+fn changed_crates_on_repo(repo: &Repository) {
+    let changed = ChangedVersions {
+        version: vec![
+            (4, collect_prs_for_minor_version(repo, 4)),
+            (5, collect_prs_for_minor_version(repo, 5)),
+        ]
+        .into_iter()
+        .collect(),
+    };
+
+    let blob = if cfg!(debug_assertions) {
+        serde_json::to_string_pretty(&changed).unwrap()
+    } else {
+        serde_json::to_string(&changed).unwrap()
+    };
+
+    let out_dir = OUTPUT_DIR.parse::<PathBuf>().unwrap();
+
+    std::fs::write(out_dir.join("commits.json"), blob).unwrap();
+}
 
 /// collect the prs from the main repo
 ///
@@ -93,7 +167,7 @@ async fn save_stats_as_artifact() {}
 /// - should this pr be backported?
 async fn collect_prs() {}
 
-fn sha_from_tag(repo: &Repository, target_tag: &str) -> Oid {
+fn sha_from_tag(repo: &Repository, target_tag: &str) -> Option<Oid> {
     let mut id = None;
 
     _ = repo.tag_foreach(|this_id, bytes| {
@@ -114,7 +188,7 @@ fn sha_from_tag(repo: &Repository, target_tag: &str) -> Oid {
         true
     });
 
-    id.unwrap()
+    id
 }
 
 #[derive(Debug)]
@@ -125,6 +199,8 @@ struct Pr<'a> {
     id: Option<usize>,
 
     changed_files: HashSet<PathBuf>,
+
+    idx: usize,
 }
 
 impl Pr<'_> {
@@ -144,7 +220,8 @@ impl Pr<'_> {
     // get the name of the package that changed
     // just parse the first folder after "packages/"
     pub fn changed_packages(&self) -> Vec<String> {
-        self.changed_crates()
+        let mut out: HashSet<String> = self
+            .changed_crates()
             .iter()
             .map(|path| {
                 path.iter()
@@ -153,7 +230,13 @@ impl Pr<'_> {
                     .map(|os_str| os_str.to_str().unwrap().to_string())
                     .collect()
             })
-            .collect()
+            .collect();
+
+        let mut out: Vec<String> = out.into_iter().collect();
+
+        out.sort();
+
+        out
     }
 }
 
@@ -165,14 +248,96 @@ async fn collect_changed_crates(repo: PathBuf) {
     // git log --first-parent/ / to get shas for every PR in the past
 
     let repo = Repository::open(repo).unwrap();
-    let start_id = sha_from_tag(&repo, "v0.5.0");
-    let end_id = sha_from_tag(&repo, "v0.5.1");
+    let start_id = sha_from_tag(&repo, "v0.5.0").unwrap();
+    let end_id = sha_from_tag(&repo, "v0.5.1").unwrap();
 
+    collect_pr_between(&repo, end_id, start_id);
+}
+
+/// Walk all the tags between the two minor versions and collect the PRs for each release
+///
+/// so if we're going from 0.5.0 to 0.5.1, we'll collect all the PRs between those two tags
+///
+/// minor_version would be 5 in this case
+/// Does not cover prereleases - only releases in the form
+fn collect_prs_for_minor_version(repo: &Repository, minor_version: usize) -> MinorVersionChanged {
+    // we're going to march forward version by version until the tag doesn't show up and then give up
+    // Kinda dumb but it keeps the structure simple enough
+    let mut patch_version = 0;
+    let mut patch_versions = vec![];
+
+    loop {
+        let start_tag = format!("v0.{}.{}", minor_version, patch_version);
+        let end_tag = format!("v0.{}.{}", minor_version, patch_version + 1);
+
+        let start_id = sha_from_tag(repo, &start_tag).unwrap();
+        let end_id = sha_from_tag(repo, &end_tag);
+
+        // If there's no end_id, that was the last tag for this minor version
+        // If there's a v0.6.0, then we're done
+        // If there's not v0.6.0, then we should accumulate the remaining changes as the "next" version
+        if end_id.is_none() {
+            println!("No end tag for {}", end_tag);
+
+            // todo: Also handle prereleases in the form of alpha-0
+            let next_minor = format!("v0.{}.0", minor_version + 1);
+            if sha_from_tag(repo, &next_minor).is_some() {
+                break;
+            }
+
+            println!("No next minor version found, attempting to collect from HEAD");
+
+            // If there's no next minor version, then the remaining tags are for *this* version
+            // The idea being that once breaking changes exist in the form of a new minor version, we
+            // stop collecting PRs for the previous version
+            //
+            // todo: this doesn't work for the workflows where we migrate changes onto stable branches
+            // while also simultaneously working on the next version in main
+            // I think all we need to do is just mark if this PR was backported and then provide that
+            // as a filter option
+            let end_id = repo.head().unwrap().target();
+            let commits = collect_pr_between(repo, end_id.unwrap(), start_id);
+            patch_versions.push(PatchVersionChanged {
+                commits,
+                version: patch_version,
+                published: false,
+            });
+            break;
+        }
+
+        let commits = collect_pr_between(repo, end_id.unwrap(), start_id);
+        patch_versions.push(PatchVersionChanged {
+            commits,
+            version: patch_version,
+            published: true,
+        });
+
+        patch_version += 1;
+    }
+
+    MinorVersionChanged {
+        patch_versions,
+        version: minor_version,
+    }
+}
+
+#[test]
+fn collects_prs_for_5() {
+    let repo = Repository::open(
+        "/Users/jonkelley/Development/dioxus"
+            .parse::<PathBuf>()
+            .unwrap(),
+    )
+    .unwrap();
+    collect_prs_for_minor_version(&repo, 5);
+}
+
+fn collect_pr_between(repo: &Repository, end_id: Oid, start_id: Oid) -> Vec<PrCommit> {
     let mut prs = vec![];
 
     let mut revwalk = repo.revwalk().unwrap();
     revwalk.push(end_id).unwrap();
-    revwalk.simplify_first_parent();
+    _ = revwalk.simplify_first_parent();
 
     let mut commits = vec![];
 
@@ -191,8 +356,11 @@ async fn collect_changed_crates(repo: PathBuf) {
 
     // Now walk the merge commits and list out the files changed by that commit
     // Diff that commit with its parent
-    for commit in commits.iter() {
-        let parent = commit.parent(0).unwrap();
+    for (idx, commit) in commits.iter().enumerate() {
+        let Ok(parent) = commit.parent(0) else {
+            continue;
+        };
+
         let diff = repo
             .diff_tree_to_tree(
                 Some(&parent.tree().unwrap()),
@@ -205,6 +373,7 @@ async fn collect_changed_crates(repo: PathBuf) {
             commit: commit.clone(),
             changed_files: HashSet::new(),
             id: None,
+            idx,
         };
 
         for delta in diff.deltas() {
@@ -219,26 +388,34 @@ async fn collect_changed_crates(repo: PathBuf) {
 
         let summary = commit.summary().unwrap();
 
-        // usually a merge commit will contain the ID in the form of (#id)
+        // usually a merge commit will contain the ID in the form of (#id) or "Merge pull request #id from user/branch"
         // try and find the first match (from the end of the string) that matches that
-        // Use a regex, I guess?
-        let regex = regex::Regex::new(r"\(#(\d+)\)").unwrap();
-        let id = regex
-            .captures(summary)
-            .and_then(|cap| cap.get(1))
-            .map(|m| m.as_str().parse().unwrap());
-        pr.id = id;
+        // A bit stupid but look for the `#` character and then try and parse the number after it
+        // first one wins
+        for part in summary.split_ascii_whitespace().rev() {
+            if let Some(id) = part.strip_prefix("(#") {
+                pr.id = Some(id.trim_end_matches(")").parse().unwrap());
+                break;
+            }
+
+            if let Some(id) = part.strip_prefix("#") {
+                pr.id = Some(id.parse().unwrap());
+                break;
+            }
+        }
 
         prs.push(pr);
     }
 
-    for pr in prs.iter() {
-        println!(
-            "{}: {:?}",
-            pr.commit.summary().unwrap(),
-            pr.changed_packages()
-        );
-    }
+    prs.iter()
+        .map(|pr| PrCommit {
+            summary: pr.commit.summary().unwrap().to_string(),
+            id: pr.id,
+            changed_packages: pr.changed_packages().into_iter().collect(),
+            commit_hash: pr.commit.id().to_string(),
+            head_index: pr.idx,
+        })
+        .collect()
 }
 
 #[tokio::test]
