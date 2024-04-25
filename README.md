@@ -1,21 +1,28 @@
 # Doxie: a helpful robot that automates the dioxus org
 
-Features:
-- [] Status page with outstanding issues for current milestone
-- [] Current benchmarks of the current milestone and any open PRs
-- [] Charts of perf, bundle size, build times, and more over time
-- [] Helpful commands for backporting, coverage, benchmarks, welcome comments, etc
-- [] Comments on open PRs
-- [] Shows which crates have changed and which commits have changed which crates
+## Motivation:
+
+Managing a large github org can take a lot of work. New PRs, comments, milestones, bugs, and features can take a lot of mental overhead to manage.
+
+This project is designed to help specifically with large open source Rust projects (though it could likely work for other projects...) that follow a (currently hardcoded) repository layout. The goal here is to help us ship faster with fewer semver issues.
+
+The pain points we *specifically* are trying to address:
+
+- Accidentally publishing semver-incompatible changes
+- Outdated documentation and doc tests marked as ignore
+
+## Features:
+- [ ] Status page with outstanding issues for current milestone
+- [ ] Current benchmarks of the current milestone and any open PRs
+- [ ] Charts of perf, bundle size, build times, and more over time
+- [ ] Helpful commands for backporting, coverage, benchmarks, welcome comments, etc
+- [ ] Comments on open PRs
+- [x] Shows which crates have changed and which commits have changed which crates
+- [ ] Reading docs with LLM and then checking if those still make sense given the actual API
+- [ ] Automatically generating doctests with AI based on examples
 
 
-## Todo:
-
-- [ ] Run `cargo workspaces changed` to get a list of crates that have changed between tags
-- [ ] ^ for the current patch version  (ie 0.5.3 -> 0.5.4)
-- [ ] and current minor version (ie 0.5.0 -> 0.5.4)
-
-
+## Open Questions
 does this need to be a bot, could just be a script?
 
 should we host a custom ghpages or can we just write to the comment?
