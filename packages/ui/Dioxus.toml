@@ -18,6 +18,8 @@ asset_dir = "assets"
 # HTML title tag content
 title = "ui"
 
+base_path = "doxie-bot"
+
 [web.watcher]
 
 # when watcher trigger, regenerate the `index.html`
