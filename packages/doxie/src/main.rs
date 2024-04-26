@@ -1,8 +1,11 @@
 //! A single entrypoint, but with different actions depending on input
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::{HashMap, HashSet},
+    future::Future,
+    path::PathBuf,
+};
 
-use dioxus::prelude::dioxus_elements::{pre, table};
 use doxie_types::*;
 use git2::{Commit, Oid, Repository, Revwalk};
 use tokio::process::Command;
@@ -59,6 +62,64 @@ async fn write_status_blob() {}
 ///
 /// This should be executing various `cargo make xyz` things and capturing their outputs.
 async fn collect_stats() {}
+
+/// Collect all the open PRs across the various repos
+async fn all_open_prs() {
+    let repos = [
+        "dioxuslabs/dioxus",
+        "dioxuslabs/dioxus-template",
+        "dioxuslabs/docsite",
+        "dioxuslabs/blitz",
+        "dioxuslabs/components",
+        "dioxuslabs/sdk",
+        "dioxuslabs/collect-assets",
+        "dioxuslabs/include_mdbook",
+        "dioxuslabs/example-projects",
+        "dioxuslabs/awesome-dioxus",
+        "jkelleyrtp/stylo-dioxus",
+    ];
+
+    let mut saved_repos = HashMap::new();
+    let octocrab = octocrab::instance();
+
+    for repo in repos {
+        let (owner, repo) = repo.split_once('/').unwrap();
+
+        let prs = octocrab
+            .pulls(owner, repo)
+            .list()
+            .per_page(100)
+            .state(octocrab::params::State::Open)
+            .send()
+            .await;
+
+        if let Ok(prs) = prs {
+            saved_repos.insert(
+                repo.to_string(),
+                OpenPrs {
+                    repo: repo.to_string(),
+                    prs: prs.into_iter().collect(),
+                },
+            );
+        } else {
+            eprintln!("Failed to get PRs for {}", repo);
+        }
+    }
+
+    let blob = if cfg!(debug_assertions) {
+        serde_json::to_string_pretty(&OpenPrMap { prs: saved_repos }).unwrap()
+    } else {
+        serde_json::to_string(&OpenPrMap { prs: saved_repos }).unwrap()
+    };
+
+    let out_dir = OUTPUT_DIR.parse::<PathBuf>().unwrap();
+    std::fs::write(out_dir.join("open_prs.json"), blob).unwrap();
+}
+
+#[tokio::test]
+async fn collect_open_prs() {
+    all_open_prs().await;
+}
 
 /// Build the wasm examples and optimize them, and then save the
 async fn collect_size(name: String) -> CompileSizeStats {

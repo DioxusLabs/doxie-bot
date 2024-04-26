@@ -10,6 +10,7 @@ The pain points we *specifically* are trying to address:
 
 - Accidentally publishing semver-incompatible changes
 - Outdated documentation and doc tests marked as ignore
+- Keeping track of changes to crates so we know when to release
 
 ## Features:
 - [ ] Status page with outstanding issues for current milestone

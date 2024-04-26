@@ -1,0 +1,19 @@
+[package]
+name = "ui"
+version = "0.1.0"
+authors = ["Jonathan Kelley <jkelleyrtp@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+dioxus = { version = "0.5", features = ["web"] }
+doxie-types = { workspace = true }
+
+# Debug
+tracing = "0.1.40"
+dioxus-logger = "0.5.0"
+
+reqwest = { version = "0.11.18", features = ["json"] }
+serde_json = "1.0.64"

@@ -6,3 +6,5 @@ pub use health::*;
 
 mod git_results;
 pub use git_results::*;
+
+pub use octocrab_models;

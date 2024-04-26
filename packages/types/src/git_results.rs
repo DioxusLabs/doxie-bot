@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use octocrab_models::pulls::PullRequest;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,4 +44,16 @@ pub struct PrCommit {
     ///
     /// This is so we can do things like sort the Patches but retain the order of the commits
     pub head_index: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OpenPrMap {
+    pub prs: HashMap<String, OpenPrs>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OpenPrs {
+    pub repo: String,
+
+    pub prs: Vec<PullRequest>,
 }
