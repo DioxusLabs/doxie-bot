@@ -11,8 +11,8 @@
 <body>
   <div id="main"></div>
   <script type="module">
-    import init from "/./assets/dioxus/ui.js";
-    init("/./assets/dioxus/ui_bg.wasm").then(wasm => {
+    import init from "/doxie-bot/assets/dioxus/ui.js";
+    init("/doxie-bot/assets/dioxus/ui_bg.wasm").then(wasm => {
       if (wasm.__wbindgen_start == undefined) {
         wasm.main();
       }
