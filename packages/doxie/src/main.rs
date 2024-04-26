@@ -19,7 +19,7 @@ async fn main() {
     let root = PathBuf::from("/Users/jonkelley/Development/dioxus");
 
     // For now, just write to the stats cache as the default
-    save_stats_as_artifact(root);
+    save_stats_as_artifact(root).await;
 }
 
 async fn bot_loop() {}
@@ -190,10 +190,13 @@ async fn changed_on_pr(api: &octocrab::Octocrab, pr_id: usize) {}
 ///
 /// We should also try to implement some sort of caching/versioning CDN-like mechanism so we don't
 /// run into issues. GH gives us 12.5k req/hr which could add up in DDOS scenario
-fn save_stats_as_artifact(path: PathBuf) {
+async fn save_stats_as_artifact(path: PathBuf) {
     // For now, collect all the PRs just for 0.4 and 0.5
     let repo = Repository::open(path).unwrap();
     changed_crates_on_repo(&repo);
+
+    // And then list open PRs
+    all_open_prs().await;
 }
 
 fn changed_crates_on_repo(repo: &Repository) {
