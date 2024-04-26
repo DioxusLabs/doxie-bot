@@ -8,7 +8,7 @@ name = "ui"
 default_platform = "web"
 
 # `build` & `serve` dist path
-out_dir = "dist"
+out_dir = "../../dist"
 
 # resource (assets) file folder
 asset_dir = "assets"
